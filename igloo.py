@@ -4,6 +4,7 @@
 
 Usage:
   igloo [-o] [-t TITLE] [-s SYNTAX] [-p PRIVACY] [-e EXPIRATION] [FILE] ...
+  igloo (-d KEY | --download=KEY)
   igloo (-l | --list)
   igloo (-r | --reset)
   igloo (-h | --help)
@@ -36,6 +37,8 @@ Options:
   -s SYNTAX --syntax=SYNTAX               Highlighting format.
   -p PRIVACY --privacy=PRIVACY            Privacy level [default: unlisted].
   -e EXPIRATION --expiration=EXPIRATION   Lifetime of snippet [default: 1H].
+  -d KEY --download=KEY                   Get raw data from a pastebin's key.
+                                          The key is the last part of the URL.
   -l --list                               View list of snippets by the current
                                           logged in user.
   -r --reset                              Reset pastebin credentials.
@@ -50,7 +53,9 @@ from json import dump, load
 from os import remove
 from os.path import expanduser, join
 from sys import stdin
+from time import time
 from webbrowser import open as open_webbrowser
+from xml.etree.ElementTree import fromstring
 
 try:
   from docopt import docopt
@@ -130,7 +135,7 @@ class Client(object):
       raise PasteError(response.content)
     return response.content
 
-  def create_paste(self, content, title=None, syntax=None,
+  def create(self, content, title=None, syntax=None,
                    privacy='unlisted', expiration='1H'):
     """Create a new paste on pastebin.com and return the corresponding URL.
 
@@ -165,10 +170,30 @@ class Client(object):
       data['api_paste_format'] = syntax
     return self._get_response(data)
 
-  def view_list_of_pastes(self):
+  def view_list(self):
     """View all pastes by logged in user."""
-    print self._get_response({'api_option': 'list'})
+    data = self._get_response({'api_option': 'list'})
+    root = fromstring('<data>%s</data>' % (data, ))
+    pastes = root.getchildren()
+    print (
+      '%s existing pastes found:\n\n' % (len(pastes), ) + 
+      '%10s %4s %2s %3s %-25s %s' % ('key', 'min', 'pr', 'hit', 'url', 'title')
+    )
+    now = time()
+    for paste in pastes:
+      tags = paste.getchildren()
+      key = tags[0].text
+      mins = (now - int(tags[1].text)) / 60
+      title = tags[2].text or ''
+      pr = tags[5].text
+      url = tags[8].text[7:]
+      hits = tags[9].text
+      print '%10s %4i %2s %3s %-25s %s' % (key, mins, pr, hits, url, title)
+    print
 
+  def download(self, key):
+    print self.session.get('http://pastebin.com/raw.php', params={'i': key}).content
+    
   def reset_credentials(self):
     """Delete local cache of credentials."""
     try:
@@ -186,7 +211,9 @@ def main():
   if arguments['--reset']:
     client.reset_credentials()
   elif arguments['--list']:
-    client.view_list_of_pastes()
+    client.view_list()
+  elif arguments['--download']:
+    client.download(arguments['--download'])
   else:
     filepaths = arguments['FILE']
     if filepaths:
@@ -197,7 +224,7 @@ def main():
       content = '\n\n'.join(contents)
     else:
       content = stdin.read()
-    url = client.create_paste(
+    url = client.create(
       content,
       title=arguments['--title'],
       syntax=arguments['--syntax'],
@@ -207,7 +234,7 @@ def main():
     if arguments['--open']:
       open_webbrowser(url)
     else:
-      print 'Pastebin successfully created!\n%s' % (url, )
+      print 'Pastebin successfully created! URL: %s' % (url[7:], )
 
 if __name__ == '__main__':
   main()
