@@ -9,7 +9,7 @@ Features
 
 Create pastes:
 
-* from a list of files:
+* from a file (or a list of files):
 
   .. code:: bash
 
