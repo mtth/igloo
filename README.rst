@@ -7,14 +7,21 @@ A command line pastebin client. Simple and compelling as can be.
 Features
 --------
 
-Create pastes from standard input or a list of files:
+Create pastes:
 
-.. code:: bash
+* from a list of files:
 
-  $ echo 'Hello world!' | igloo 
-  Pastebin successfully created! URL: pastebin.com/GREQxa5Z
-  $ igloo first.rst second.rst
-  Pastebin successfully created! URL: pastebin.com/3A6qX416
+  .. code:: bash
+
+    $ igloo first.rst second.rst
+    Pastebin successfully created! URL: pastebin.com/3A6qX416
+
+* from standard input (great when piping stuff around):
+
+  .. code:: bash
+
+    $ echo 'Hello world!' | igloo 
+    Pastebin successfully created! URL: pastebin.com/GREQxa5Z
 
 Download a paste:
 
