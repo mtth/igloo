@@ -10,7 +10,10 @@ Usage:
   igloo --version
 
 Creates a pastebin from files or standard input and returns the pastebin's URL.
-You must have a pastebin.com account to use igloo.
+You must have a pastebin.com account to use igloo. The first time you use
+igloo you will be prompted for your api developer key (which can be found at
+http://pastebin.com/api) along with your user name and password. Igloo then
+stores the necessary pastebin credentials in ``~/.igloo`` for later use.
 
 Examples:
   igloo my_file.txt
@@ -36,13 +39,13 @@ Options:
 
 """
 
-__version__ = '0.0.7'
+__version__ = '0.0.8'
 
 
 from getpass import getpass
 from json import dump, load
 from os import remove
-from os.path import abspath, dirname, join
+from os.path import expanduser, join
 from sys import stdin
 
 try:
@@ -61,15 +64,21 @@ class PasteError(Exception):
 
 class Client(object):
 
+  """Pastebin API client."""
+
   _key = None
-  _path = 'igloo_key.json'
 
   def __init__(self):
     self.session = Session()
 
   @property
   def key(self):
-    path = abspath(join(dirname(__file__), self._path))
+    """API developer and user keys.
+    
+    These are stored locally after the first time they are created.
+    
+    """
+    path = join(expanduser('~'), '.igloo')
     if self._key is None:
       try:
         with open(path) as f:
@@ -98,14 +107,11 @@ class Client(object):
           }
           with open(path, 'w') as g:
             dump(key, g)
-          print (
-            'Pastebin credentials stored in %r.' %
-            (abspath(path), )
-          )
       self._key = key
     return self._key
 
   def _get_response(self, data):
+    """Simple API response wrapper."""
     response = self.session.send(
       Request(
         'POST',
@@ -119,6 +125,12 @@ class Client(object):
 
   def create_paste(self, content, title=None, syntax=None,
                    privacy='unlisted', expiration='1H'):
+    """Create a new paste on pastebin.com and return the corresponding URL.
+
+    :param content: the content of the pastebin
+    :rtype: str
+
+    """
     data = {
       'api_option': 'paste',
       'api_paste_code': content,
@@ -148,10 +160,12 @@ class Client(object):
     print 'Pastebin created! Url:\n%s' % (url, )
 
   def view_list_of_pastes(self):
+    """View all pastes by logged in user."""
     print self._get_response({'api_option': 'list'})
 
   def reset_credentials(self):
-    path = abspath(join(dirname(__file__), self._path))
+    """Delete local cache of credentials."""
+    path = join(expanduser('~'), '.igloo')
     try:
       remove(path)
     except OSError:
@@ -161,6 +175,7 @@ class Client(object):
 
 
 def main():
+  """Command line parser. Docopt is amazing."""
   arguments = docopt(__doc__, version=__version__)
   client = Client()
   if arguments['--reset']:
@@ -187,3 +202,4 @@ def main():
 
 if __name__ == '__main__':
   main()
+
