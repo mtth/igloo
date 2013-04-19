@@ -1,20 +1,12 @@
 #!/usr/bin/env python
 
-"""
-Igloo
-=====
+"""Igloo: a command line pastebin client."""
 
-A command line pastebin client.
+from setuptools import setup
 
-.. code:: bash
-
-  pip install igloo
-
-`Github repo <https://github.com/mtth/igloo>`_
-
-"""
-
-from setuptools import find_packages, setup
+def get_description():
+  from igloo import __doc__
+  return __doc__
 
 def get_version():
   from igloo import __version__
@@ -24,12 +16,12 @@ setup(
     name='igloo',
     version=get_version(),
     description='Command line pastebin client',
-    long_description=__doc__,
+    long_description=get_description(),
     author='Matthieu Monsch',
     author_email='monsch@mit.edu',
     url='http://github.com/mtth/igloo/',
     license='MIT',
-    packages=find_packages(),
+    py_modules=['igloo'],
     classifiers=[
       'Development Status :: 4 - Beta',
       'Intended Audience :: Developers',

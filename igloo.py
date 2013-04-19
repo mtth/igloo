@@ -3,33 +3,55 @@
 """Igloo: a command line pastebin client.
 
 Usage:
-  igloo [-t TITLE] [-s SYNTAX] [-p PRIVACY] [-e EXPIRATION] [-f FILE]
+  igloo [-t TITLE] [-s SYNTAX] [-p PRIVACY] [-e EXPIRATION] [FILE] ...
   igloo (-l | --list)
+  igloo (-r | --reset)
   igloo (-h | --help)
   igloo --version
+
+Creates a pastebin from files or standard input and returns the pastebin's URL.
+You must have a pastebin.com account to use igloo.
+
+Examples:
+  igloo my_file.txt
+  igloo -t 'code snippet' -s python -p private < my_code.py
+  echo 'hello world!' | igloo
+
+Arguments:
+  FILE                                    File(s) to copy. Multiple files will
+                                          have their contents joined by
+                                          newlines. If no file is specified
+                                          standard input will be used instead.
 
 Options:
   -h --help                               Show this screen.
   --version                               Show version.
-  -l --list                               View list of snippets.
   -t TITLE --title=TITLE                  Title of snippet.
   -s SYNTAX --syntax=SYNTAX               Highlighting format.
   -p PRIVACY --privacy=PRIVACY            Privacy level [default: unlisted].
   -e EXPIRATION --expiration=EXPIRATION   Lifetime of snippet [default: 1H].
-  -f FILE --file=FILE                     File to copy. Standard input will be
-                                          used if no file is specified.
+  -l --list                               View list of snippets by the current
+                                          logged in user.
+  -r --reset                              Reset pastebin credentials.
 
 """
 
-__version__ = '0.0.1'
+__version__ = '0.0.7'
 
 
-from docopt import docopt
 from getpass import getpass
 from json import dump, load
-from requests import Request, Session
-from requests.exceptions import Timeout
+from os import remove
+from os.path import abspath, dirname, join
 from sys import stdin
+
+try:
+  from docopt import docopt
+  from requests import Request, Session
+  from requests.exceptions import Timeout
+except ImportError:
+  # probably in setup.py
+  pass
 
 
 class PasteError(Exception):
@@ -39,38 +61,49 @@ class PasteError(Exception):
 
 class Client(object):
 
-  def __init__(self, key_storage_path='key.json'):
-    self.session = Session()
-    self.key = self._get_key(key_storage_path)
+  _key = None
+  _path = 'igloo_key.json'
 
-  def _get_key(self, key_storage_path):
-    try:
-      with open(key_storage_path) as f:
-        key = load(f)
-    except IOError:
+  def __init__(self):
+    self.session = Session()
+
+  @property
+  def key(self):
+    path = abspath(join(dirname(__file__), self._path))
+    if self._key is None:
       try:
-        api_dev_key = raw_input('API dev key: ')
-        req = self.session.post(
-          'http://pastebin.com/api/api_login.php',
-          data={
+        with open(path) as f:
+          key = load(f)
+      except IOError:
+        print 'Generating new credentials:'
+        print 'Cf. http://pastebin.com/api to find the required keys.'
+        try:
+          api_dev_key = raw_input('API dev key: ')
+          req = self.session.post(
+            'http://pastebin.com/api/api_login.php',
+            data={
+              'api_dev_key': api_dev_key,
+              'api_user_name': raw_input('API user name: '),
+              'api_user_password': getpass('API user password: '),
+            }
+          )
+        except Timeout:
+          raise PasteError('Unable to connect to server.')
+        else:
+          if 'Bad API request' in req.content:
+            raise PasteError(req.content)
+          key = {
             'api_dev_key': api_dev_key,
-            'api_user_name': raw_input('API user name: '),
-            'api_user_password': getpass('API user password: '),
+            'api_user_key': req.content,
           }
-        )
-      except Timeout:
-        raise PasteError('Unable to connect to server.')
-      else:
-        if 'Bad API request' in req.content:
-          raise PasteError(req.content)
-        key = {
-          'api_dev_key': api_dev_key,
-          'api_user_key': req.content,
-        }
-        with open(key_storage_path, 'w') as g:
-          dump(key, g)
-          print 'API keys stored in %r.' % (key_storage_path, )
-    return key
+          with open(path, 'w') as g:
+            dump(key, g)
+          print (
+            'Pastebin credentials stored in %r.' %
+            (abspath(path), )
+          )
+      self._key = key
+    return self._key
 
   def _get_response(self, data):
     response = self.session.send(
@@ -111,21 +144,37 @@ class Client(object):
       data['api_paste_expire_date'] = expiration
     if syntax:
       data['api_paste_format'] = syntax
-    return self._get_response(data)
+    url = self._get_response(data)
+    print 'Pastebin created! Url:\n%s' % (url, )
 
   def view_list_of_pastes(self):
     print self._get_response({'api_option': 'list'})
 
+  def reset_credentials(self):
+    path = abspath(join(dirname(__file__), self._path))
+    try:
+      remove(path)
+    except OSError:
+      print 'No credentials to delete.'
+    else:
+      print 'Credentials deleted.'
+
+
 def main():
   arguments = docopt(__doc__, version=__version__)
   client = Client()
-  if arguments['--list']:
+  if arguments['--reset']:
+    client.reset_credentials()
+  elif arguments['--list']:
     client.view_list_of_pastes()
   else:
-    filepath = arguments['--file']
-    if filepath:
-      with open(filepath) as f:
-        content = f.read()
+    filepaths = arguments['FILE']
+    if filepaths:
+      contents = []
+      for filepath in filepaths:
+        with open(filepath) as f:
+          contents.append(f.read())
+      content = '\n\n'.join(contents)
     else:
       content = stdin.read()
     url = client.create_paste(
@@ -135,7 +184,6 @@ def main():
       privacy=arguments['--privacy'],
       expiration=arguments['--expiration']
     )
-    print 'Pastebin created! Url: %s' % (url, )
 
 if __name__ == '__main__':
   main()
