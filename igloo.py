@@ -3,13 +3,15 @@
 """Igloo: a command line pastebin client.
 
 Usage:
-  igloo [-t TITLE] [-s SYNTAX] [-p PRIVACY] [-e EXPIRATION] [FILE] ...
+  igloo [-o] [-t TITLE] [-s SYNTAX] [-p PRIVACY] [-e EXPIRATION] [FILE] ...
   igloo (-l | --list)
   igloo (-r | --reset)
   igloo (-h | --help)
   igloo --version
 
-Creates a pastebin from files or standard input and returns the pastebin's URL.
+Creates a pastebin from files or standard input and returns the pastebin's URL
+or opens the corresponding page in your browser.
+
 You must have a pastebin.com account to use igloo. The first time you use
 igloo you will be prompted for your api developer key (which can be found at
 http://pastebin.com/api) along with your user name and password. Igloo then
@@ -29,6 +31,7 @@ Arguments:
 Options:
   -h --help                               Show this screen.
   --version                               Show version.
+  -o --open                               Open browser after creating pastebin.
   -t TITLE --title=TITLE                  Title of snippet.
   -s SYNTAX --syntax=SYNTAX               Highlighting format.
   -p PRIVACY --privacy=PRIVACY            Privacy level [default: unlisted].
@@ -39,7 +42,7 @@ Options:
 
 """
 
-__version__ = '0.0.8'
+__version__ = '0.0.9'
 
 
 from getpass import getpass
@@ -47,6 +50,7 @@ from json import dump, load
 from os import remove
 from os.path import expanduser, join
 from sys import stdin
+from webbrowser import open as open_webbrowser
 
 try:
   from docopt import docopt
@@ -59,12 +63,16 @@ except ImportError:
 
 class PasteError(Exception):
 
+  """Generic Igloo Error."""
+
   pass
 
 
 class Client(object):
 
   """Pastebin API client."""
+
+  path = join(expanduser('~'), '.igloo')
 
   _key = None
 
@@ -74,14 +82,13 @@ class Client(object):
   @property
   def key(self):
     """API developer and user keys.
-    
+
     These are stored locally after the first time they are created.
-    
+
     """
-    path = join(expanduser('~'), '.igloo')
     if self._key is None:
       try:
-        with open(path) as f:
+        with open(self.path) as f:
           key = load(f)
       except IOError:
         print 'Generating new credentials:'
@@ -105,7 +112,7 @@ class Client(object):
             'api_dev_key': api_dev_key,
             'api_user_key': req.content,
           }
-          with open(path, 'w') as g:
+          with open(self.path, 'w') as g:
             dump(key, g)
       self._key = key
     return self._key
@@ -156,8 +163,7 @@ class Client(object):
       data['api_paste_expire_date'] = expiration
     if syntax:
       data['api_paste_format'] = syntax
-    url = self._get_response(data)
-    print 'Pastebin created! Url:\n%s' % (url, )
+    return self._get_response(data)
 
   def view_list_of_pastes(self):
     """View all pastes by logged in user."""
@@ -165,9 +171,8 @@ class Client(object):
 
   def reset_credentials(self):
     """Delete local cache of credentials."""
-    path = join(expanduser('~'), '.igloo')
     try:
-      remove(path)
+      remove(self.path)
     except OSError:
       print 'No credentials to delete.'
     else:
@@ -199,7 +204,10 @@ def main():
       privacy=arguments['--privacy'],
       expiration=arguments['--expiration']
     )
+    if arguments['--open']:
+      open_webbrowser(url)
+    else:
+      print 'Pastebin successfully created!\n%s' % (url, )
 
 if __name__ == '__main__':
   main()
-
