@@ -41,7 +41,9 @@ View your pastes:
     3A6qX416   14  1   0 pastebin.com/3A6qX416     sample
     jfRA2EN3   33  1   2 pastebin.com/jfRA2EN3     summary
 
-For a full list of avaiable options: ``igloo -h``.
+Igloo also lets you set syntax highlighting, open your browser to your newest
+paste and give a title to your pastes. For a full list of available options:
+``igloo -h``.
 
 
 Installation
