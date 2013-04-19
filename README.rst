@@ -1,7 +1,7 @@
 Igloo
 =====
 
-A command line pastebin client. Simple and compelling as can be.
+A command line pastebin.com_ client. Simple and compelling as can be.
 
 
 Features
@@ -42,8 +42,8 @@ View your pastes:
     jfRA2EN3   33  1   2 pastebin.com/jfRA2EN3     summary
 
 Igloo also lets you set syntax highlighting, open your browser to your newest
-paste and give a title to your pastes. For a full list of available options:
-``igloo -h``.
+paste, give a title to your pastes, and more. For a full list of available
+options: ``igloo -h``.
 
 
 Installation
@@ -52,4 +52,9 @@ Installation
 .. code:: bash
 
   pip install igloo
+
+Before using Igloo, you will also need to create an account on pastebin.com_.
+
+
+.. _pastebin.com: http://pastebin.com/
 
