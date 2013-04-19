@@ -10,8 +10,8 @@ Usage:
   igloo (-h | --help)
   igloo --version
 
-Creates a pastebin from files or standard input and returns the pastebin's URL
-or opens the corresponding page in your browser.
+Creates a paste on pastebin.com from files or standard input and returns the
+paste's URL or opens the corresponding page in your browser.
 
 You must have a pastebin.com account to use igloo. The first time you use
 igloo you will be prompted for your api developer key (which can be found at
@@ -32,20 +32,20 @@ Arguments:
 Options:
   -h --help                               Show this screen.
   --version                               Show version.
-  -o --open                               Open browser after creating pastebin.
+  -o --open                               Open browser after creating paste.
   -t TITLE --title=TITLE                  Title of snippet.
   -s SYNTAX --syntax=SYNTAX               Highlighting format.
   -p PRIVACY --privacy=PRIVACY            Privacy level [default: unlisted].
   -e EXPIRATION --expiration=EXPIRATION   Lifetime of snippet [default: 1H].
-  -d KEY --download=KEY                   Get raw data from a pastebin's key.
+  -d KEY --download=KEY                   Get raw data from a paste's key.
                                           The key is the last part of the URL.
-  -l --list                               View list of snippets by the current
+  -l --list                               View list of pastes by the current
                                           logged in user.
   -r --reset                              Reset pastebin credentials.
 
 """
 
-__version__ = '0.0.10'
+__version__ = '0.0.12'
 
 
 from getpass import getpass
@@ -139,7 +139,7 @@ class Client(object):
                    privacy='unlisted', expiration='1H'):
     """Create a new paste on pastebin.com and return the corresponding URL.
 
-    :param content: the content of the pastebin
+    :param content: the content of the paste
     :rtype: str
 
     """
@@ -176,8 +176,8 @@ class Client(object):
     root = fromstring('<data>%s</data>' % (data, ))
     pastes = root.getchildren()
     print (
-      '%s existing pastes found:\n\n' % (len(pastes), ) + 
-      '%10s %4s %2s %3s %-25s %s' % ('key', 'min', 'pr', 'hit', 'url', 'title')
+      '\n%10s %4s %2s %3s %-25s %s' %
+      ('key', 'min', 'pr', 'hit', 'url', 'title')
     )
     now = time()
     for paste in pastes:
@@ -234,7 +234,7 @@ def main():
     if arguments['--open']:
       open_webbrowser(url)
     else:
-      print 'Pastebin successfully created! URL: %s' % (url[7:], )
+      print 'Paste successfully created! URL: %s' % (url[7:], )
 
 if __name__ == '__main__':
   main()

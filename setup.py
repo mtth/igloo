@@ -15,7 +15,7 @@ def get_version():
 setup(
     name='igloo',
     version=get_version(),
-    description='Command line pastebin client',
+    description='A command line pastebin client',
     long_description=get_description(),
     author='Matthieu Monsch',
     author_email='monsch@mit.edu',

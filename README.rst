@@ -1,32 +1,33 @@
 Igloo
 =====
 
-A command line pastebin client.
+A command line pastebin client. Simple and compelling as can be.
 
-Simple and compelling as can be.
 
-Create a pastebin from standard input or a file:
+Features
+--------
+
+Create pastes from standard input or a list of files:
 
 .. code:: bash
 
-  $ igloo sample.txt
+  $ igloo first.rst second.rst
   Pastebin successfully created! URL: pastebin.com/3A6qX416
   $ echo 'Hello world!' | igloo 
   Pastebin successfully created! URL: pastebin.com/GREQxa5Z
 
-Download a pastebin:
+Download a paste:
 
 .. code:: bash
 
   $ igloo -d GREQxa5Z
   Hello world!
 
-View your pastebins:
+View your pastes:
 
 .. code:: bash
 
   $ igloo -l
-  3 existing pastes found:
 
          key  min pr hit url                       title
     GREQxa5Z    1  1   0 pastebin.com/GREQxa5Z     
