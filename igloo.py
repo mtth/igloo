@@ -45,7 +45,7 @@ Options:
 
 """
 
-__version__ = '0.0.12'
+__version__ = '0.0.13'
 
 
 from getpass import getpass
@@ -59,7 +59,7 @@ from xml.etree.ElementTree import fromstring
 
 try:
   from docopt import docopt
-  from requests import Request, Session
+  from requests import Session
   from requests.exceptions import Timeout
 except ImportError:
   # probably in setup.py
@@ -124,19 +124,16 @@ class Client(object):
 
   def _get_response(self, data):
     """Simple API response wrapper."""
-    response = self.session.send(
-      Request(
-        'POST',
-        'http://pastebin.com/api/api_post.php',
-        data=dict(self.key.items() + (data or {}).items()),
-      ).prepare()
-    )
-    if 'Bad API request' in response.content:
-      raise PasteError(response.content)
-    return response.content
+    data = self.session.post(
+      'http://pastebin.com/api/api_post.php',
+      data=dict(self.key.items() + (data or {}).items()),
+    ).content
+    if 'Bad API request' in data or 'Post limit' in data:
+      raise PasteError(data)
+    return data
 
-  def create(self, content, title=None, syntax=None,
-                   privacy='unlisted', expiration='1H'):
+  def create(self, content, title=None, syntax=None, privacy='unlisted',
+             expiration='1H'):
     """Create a new paste on pastebin.com and return the corresponding URL.
 
     :param content: the content of the paste
@@ -170,15 +167,16 @@ class Client(object):
       data['api_paste_format'] = syntax
     return self._get_response(data)
 
-  def view_list(self):
+  def get_list_of_pastes(self):
     """View all pastes by logged in user."""
     data = self._get_response({'api_option': 'list'})
     root = fromstring('<data>%s</data>' % (data, ))
     pastes = root.getchildren()
-    print (
-      '\n%10s %4s %2s %3s %-25s %s' %
+    header = (
+      '\n%10s %4s %2s %3s %-25s %s\n' %
       ('key', 'min', 'pr', 'hit', 'url', 'title')
     )
+    rows = []
     now = time()
     for paste in pastes:
       tags = paste.getchildren()
@@ -188,20 +186,32 @@ class Client(object):
       pr = tags[5].text
       url = tags[8].text[7:]
       hits = tags[9].text
-      print '%10s %4i %2s %3s %-25s %s' % (key, mins, pr, hits, url, title)
-    print
+      rows.append(
+        '%10s %4i %2s %3s %-25s %s' %
+        (key, mins, pr, hits, url, title)
+      )
+    if rows:
+      return header + '\n'.join(rows)
+    else:
+      return 'No pastes found.'
 
-  def download(self, key):
-    print self.session.get('http://pastebin.com/raw.php', params={'i': key}).content
+  def get_raw_paste(self, key):
+    """Get the raw content from a paste's key."""
+    resp = self.session.get('http://pastebin.com/raw.php', params={'i': key})
+    data = resp.content
+    if 'Unknown Paste ID!' in data:
+      return 'No paste found.'
+    else:
+      return data
     
   def reset_credentials(self):
     """Delete local cache of credentials."""
     try:
       remove(self.path)
     except OSError:
-      print 'No credentials to delete.'
+      return 'No credentials to delete.'
     else:
-      print 'Credentials deleted.'
+      return 'Credentials deleted.'
 
 
 def main():
@@ -209,11 +219,11 @@ def main():
   arguments = docopt(__doc__, version=__version__)
   client = Client()
   if arguments['--reset']:
-    client.reset_credentials()
+    print client.reset_credentials()
   elif arguments['--list']:
-    client.view_list()
+    print client.get_list_of_pastes()
   elif arguments['--download']:
-    client.download(arguments['--download'])
+    print client.get_raw_paste(arguments['--download'])
   else:
     filepaths = arguments['FILE']
     if filepaths:
