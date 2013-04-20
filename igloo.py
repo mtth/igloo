@@ -132,8 +132,8 @@ class Client(object):
       raise PasteError(data)
     return data
 
-  def create(self, content, title=None, syntax=None, privacy='unlisted',
-             expiration='1H'):
+  def create_paste(self, content, title=None, syntax=None, privacy='unlisted',
+                   expiration='1H'):
     """Create a new paste on pastebin.com and return the corresponding URL.
 
     :param content: the content of the paste
@@ -234,7 +234,7 @@ def main():
       content = '\n\n'.join(contents)
     else:
       content = stdin.read()
-    url = client.create(
+    url = client.create_paste(
       content,
       title=arguments['--title'],
       syntax=arguments['--syntax'],
