@@ -14,14 +14,14 @@ Create pastes:
   .. code:: bash
 
     $ igloo first.rst second.rst
-    Pastebin successfully created! URL: pastebin.com/3A6qX416
+    Paste successfully created! URL: pastebin.com/3A6qX416
 
 * from standard input (great when piping stuff around):
 
   .. code:: bash
 
     $ echo 'Hello world!' | igloo 
-    Pastebin successfully created! URL: pastebin.com/GREQxa5Z
+    Paste successfully created! URL: pastebin.com/GREQxa5Z
 
 Download a paste:
 
