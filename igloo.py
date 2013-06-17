@@ -10,7 +10,7 @@ Examples:
   igloo my_file.txt
   igloo -f private < my_code.py
   echo 'hello world!' | igloo -s hello
-  igloo -sd test.log | grep foo
+  igloo -ds test.log | grep foo
 
 Arguments:
   FILENAME                      The file to copy. If in uploading mode
@@ -21,27 +21,32 @@ Arguments:
 Options:
   --debug                       Enable full exception traceback.
   -d --download                 Downloading mode.
-  -f FOLDER --folder=FOLDER     Folder to save/fetch the file to/from.
+  -f FOLDER --folder=FOLDER     Folder to copy the file to/from.
   -h --help                     Show this screen.
-  --host=HOST                   Hostname.
-  --http-url=URL                Not used yet.
+  --host=HOST                   Remote hostname.
   --list                        List remote files in folder.
   -p PROFILE --profile=PROFILE  Profile [default: default].
+  -r --recursive                Enable directory transfer. Not yet implemented.
   --remove                      Remove remote file.
   -s --stream                   Streaming mode.
   -t --track                    Track transfer progress.
   --use-password                Use password identification.
   --user=USER                   Username.
   --version                     Show version.
+  -z --zip                      Zip file or folder before transferring. Files
+                                that are already compressed won't be
+                                compressed again. Not yet implemented.
 
 """
 
-__version__ = '0.0.19'
+__version__ = '0.0.20'
 
 
+from codecs import getwriter
 from ConfigParser import NoSectionError, SafeConfigParser
 from contextlib import contextmanager
 from getpass import getpass, getuser
+from locale import getpreferredencoding
 from os import fdopen, makedirs, remove
 from os.path import exists, expanduser, join
 from sys import stderr, stdin, stdout
@@ -52,6 +57,11 @@ try:
   from paramiko import SSHClient
 except ImportError:
   pass # probably in setup.py
+
+# Stdout doesn't do any encoding so we fix this here. Note that using
+# ``stdout.encoding`` instead of ``getpreferredencoding`` will fail when
+# piping.
+stdout = getwriter(getpreferredencoding())(stdout)
 
 
 class ClientError(Exception):
@@ -75,7 +85,6 @@ class Client(object):
   config_defaults = {
     'user': getuser(),
     'host': '',
-    'http_url': '',
     'root_folder': '.',
     'default_folder': '.',
   }
@@ -154,8 +163,11 @@ class Client(object):
   def get_callback(self):
     """Callback function for ``sftp.put`` and ``sftp.get``."""
     def callback(transferred, total):
-      progress = 100 * float(transferred) / total
-      stdout.write('Progress: %.1f%%\r' % (progress, ))
+      progress = int(100 * float(transferred) / total)
+      if progress < 100:
+        stdout.write(' %2i%%\r' % (progress, ))
+      else:
+        stdout.write('      \r')
       stdout.flush()
     return callback
 
@@ -228,7 +240,7 @@ class Client(object):
       return [
         filename
         for filename in sftp.listdir()
-        if not filename.startswith('.')
+        if not filename.startswith(u'.')
       ]
 
 
@@ -242,7 +254,6 @@ def main():
       user=arguments['--user'],
       host=arguments['--host'],
       folder=arguments['--folder'],
-      http_url=arguments['--http-url'],
     )
     if arguments['--download']:
       client.download(
@@ -251,11 +262,10 @@ def main():
         stream=arguments['--stream'],
       )
     elif arguments['--list']:
-      print '\n'.join(client.list())
+      stdout.write(u'\n'.join(client.list()))
+      stdout.write(u'\n')
     elif arguments['--remove']:
-      client.remove(
-        filename=arguments['FILENAME'],
-      )
+      client.remove(filename=arguments['FILENAME'])
     else:
       filename = client.upload(
         filename=arguments['FILENAME'],
