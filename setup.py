@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 
-"""Igloo: a command line pastebin client."""
+"""Igloo: a command line scp client."""
 
 from setuptools import setup
 
@@ -15,7 +15,7 @@ def get_version():
 setup(
     name='igloo',
     version=get_version(),
-    description='A command line pastebin client',
+    description='A command line scp client',
     long_description=get_description(),
     author='Matthieu Monsch',
     author_email='monsch@mit.edu',
@@ -30,7 +30,7 @@ setup(
     ],
     install_requires=[
       'docopt',
-      'requests',
+      'paramiko',
     ],
     entry_points={'console_scripts': ['igloo = igloo:main']},
 )

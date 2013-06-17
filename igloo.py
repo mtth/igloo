@@ -1,250 +1,273 @@
 #!/usr/bin/env python
 
-"""Igloo: a command line pastebin client.
+"""Igloo: a command line scp client.
 
 Usage:
-  igloo [-o] [-t TITLE] [-s SYNTAX] [-p PRIVACY] [-e EXPIRATION] [FILE] ...
-  igloo (-d KEY | --download=KEY)
-  igloo (-l | --list)
-  igloo (-r | --reset)
-  igloo (-h | --help)
-  igloo --version
-
-Creates a paste on pastebin.com from files or standard input and returns the
-paste's URL or opens the corresponding page in your browser.
-
-You must have a pastebin.com account to use igloo. The first time you use
-igloo you will be prompted for your api developer key (which can be found at
-http://pastebin.com/api) along with your user name and password. Igloo then
-stores the necessary pastebin credentials in ``~/.igloo`` for later use.
+  igloo [options] (--list | FILENAME)
+  igloo -h | --help | --version
 
 Examples:
   igloo my_file.txt
-  igloo -t 'code snippet' -s python -p private < my_code.py
-  echo 'hello world!' | igloo
+  igloo -f private < my_code.py
+  echo 'hello world!' | igloo -s hello
+  igloo -sd test.log | grep foo
 
 Arguments:
-  FILE                                    File(s) to copy. Multiple files will
-                                          have their contents joined by
-                                          newlines. If no file is specified
-                                          standard input will be used instead.
+  FILENAME                      The file to copy. If in uploading mode
+                                (default) with streaming mode activated this
+                                will only be used as remote filename. If in
+                                downloading mode, the remote file to fetch.
 
 Options:
-  -h --help                               Show this screen.
-  --version                               Show version.
-  -o --open                               Open browser after creating paste.
-  -t TITLE --title=TITLE                  Title of snippet.
-  -s SYNTAX --syntax=SYNTAX               Highlighting format.
-  -p PRIVACY --privacy=PRIVACY            Privacy level [default: unlisted].
-  -e EXPIRATION --expiration=EXPIRATION   Lifetime of snippet [default: 1H].
-  -d KEY --download=KEY                   Get raw data from a paste's key.
-                                          The key is the last part of the URL.
-  -l --list                               View list of pastes by the current
-                                          logged in user.
-  -r --reset                              Reset pastebin credentials.
+  --debug                       Enable full exception traceback.
+  -d --download                 Downloading mode.
+  -f FOLDER --folder=FOLDER     Folder to save/fetch the file to/from.
+  -h --help                     Show this screen.
+  --host=HOST                   Hostname.
+  --http-url=URL                Not used yet.
+  --list                        List remote files in folder.
+  -p PROFILE --profile=PROFILE  Profile [default: default].
+  --remove                      Remove remote file.
+  -s --stream                   Streaming mode.
+  -t --track                    Track transfer progress.
+  --use-password                Use password identification.
+  --user=USER                   Username.
+  --version                     Show version.
 
 """
 
-__version__ = '0.0.13'
+__version__ = '0.0.19'
 
 
-from getpass import getpass
-from json import dump, load
-from os import remove
-from os.path import expanduser, join
-from sys import stdin
-from time import time
-from webbrowser import open as open_webbrowser
-from xml.etree.ElementTree import fromstring
+from ConfigParser import NoSectionError, SafeConfigParser
+from contextlib import contextmanager
+from getpass import getpass, getuser
+from os import fdopen, makedirs, remove
+from os.path import exists, expanduser, join
+from sys import stderr, stdin, stdout
+from traceback import format_exc
 
 try:
   from docopt import docopt
-  from requests import Session
-  from requests.exceptions import Timeout
+  from paramiko import SSHClient
 except ImportError:
-  # probably in setup.py
-  pass
+  pass # probably in setup.py
 
 
-class PasteError(Exception):
+class ClientError(Exception):
 
-  """Generic Igloo Error."""
+  """Base client error class.
 
-  pass
+  Stores the original traceback to be displayed in debug mode.
+
+  """
+
+  def __init__(self, message):
+    super(ClientError, self).__init__(message)
+    self.traceback = format_exc()
 
 
 class Client(object):
 
-  """Pastebin API client."""
+  """API client."""
 
-  path = join(expanduser('~'), '.igloo')
+  #: Configuration default values
+  config_defaults = {
+    'user': getuser(),
+    'host': '',
+    'http_url': '',
+    'root_folder': '.',
+    'default_folder': '.',
+  }
 
-  _key = None
+  #: Path to configuration file
+  config_file = join(expanduser('~'), '.config', 'igloo', 'config')
 
-  def __init__(self):
-    self.session = Session()
-
-  @property
-  def key(self):
-    """API developer and user keys.
-
-    These are stored locally after the first time they are created.
-
-    """
-    if self._key is None:
-      try:
-        with open(self.path) as f:
-          key = load(f)
-      except IOError:
-        print 'Generating new credentials:'
-        print 'Cf. http://pastebin.com/api to find the required keys.'
-        try:
-          api_dev_key = raw_input('API dev key: ')
-          req = self.session.post(
-            'http://pastebin.com/api/api_login.php',
-            data={
-              'api_dev_key': api_dev_key,
-              'api_user_name': raw_input('API user name: '),
-              'api_user_password': getpass('API user password: '),
-            }
-          )
-        except Timeout:
-          raise PasteError('Unable to connect to server.')
-        else:
-          if 'Bad API request' in req.content:
-            raise PasteError(req.content)
-          key = {
-            'api_dev_key': api_dev_key,
-            'api_user_key': req.content,
-          }
-          with open(self.path, 'w') as g:
-            dump(key, g)
-      self._key = key
-    return self._key
-
-  def _get_response(self, data):
-    """Simple API response wrapper."""
-    data = self.session.post(
-      'http://pastebin.com/api/api_post.php',
-      data=dict(self.key.items() + (data or {}).items()),
-    ).content
-    if 'Bad API request' in data or 'Post limit' in data:
-      raise PasteError(data)
-    return data
-
-  def create_paste(self, content, title=None, syntax=None, privacy='unlisted',
-                   expiration='1H'):
-    """Create a new paste on pastebin.com and return the corresponding URL.
-
-    :param content: the content of the paste
-    :rtype: str
-
-    """
-    data = {
-      'api_option': 'paste',
-      'api_paste_code': content,
-      'api_paste_name': title or '',
-    }
-    privacy_mapping = {'public': 0, 'unlisted': 1, 'private': 2}
-    try:
-      privacy_level = privacy_mapping[privacy]
-    except KeyError:
-      raise PasteError(
-        'Invalid privacy argument: %r. Valid values: %s.' %
-        (privacy, ', '.join(privacy_mapping.keys()))
-      )
-    else:
-      data['api_paste_private'] = privacy_level
-    expiration_values = ['10M', '1H', '1D', '1W', '2W', '1M', 'N']
-    if not expiration in expiration_values:
-      raise PasteError(
-        'Invalid expiration argument: %r. Valid values: %s.' %
-        (expiration, ', '.join(expiration_values))
-      )
-    else:
-      data['api_paste_expire_date'] = expiration
-    if syntax:
-      data['api_paste_format'] = syntax
-    return self._get_response(data)
-
-  def get_list_of_pastes(self):
-    """View all pastes by logged in user."""
-    data = self._get_response({'api_option': 'list'})
-    root = fromstring('<data>%s</data>' % (data, ))
-    pastes = root.getchildren()
-    header = (
-      '\n%10s %4s %2s %3s %-25s %s\n' %
-      ('key', 'min', 'pr', 'hit', 'url', 'title')
+  def __init__(self, profile, use_password, **kwargs):
+    self.config = self.load_config(
+      profile,
+      {k: v for k, v in kwargs.items() if not v is None}
     )
-    rows = []
-    now = time()
-    for paste in pastes:
-      tags = paste.getchildren()
-      key = tags[0].text
-      mins = (now - int(tags[1].text)) / 60
-      title = tags[2].text or ''
-      pr = tags[5].text
-      url = tags[8].text[7:]
-      hits = tags[9].text
-      rows.append(
-        '%10s %4i %2s %3s %-25s %s' %
-        (key, mins, pr, hits, url, title)
-      )
-    if rows:
-      return header + '\n'.join(rows)
-    else:
-      return 'No pastes found.'
+    for k, v in self.config_defaults.items():
+      self.config.setdefault(k, v)
+    self.config['folder'] = join(
+      self.config['root_folder'],
+      self.config.get('folder', None) or self.config['default_folder'],
+    )
+    self.use_password = use_password
 
-  def get_raw_paste(self, key):
-    """Get the raw content from a paste's key."""
-    resp = self.session.get('http://pastebin.com/raw.php', params={'i': key})
-    data = resp.content
-    if 'Unknown Paste ID!' in data:
-      return 'No paste found.'
-    else:
-      return data
-    
-  def reset_credentials(self):
-    """Delete local cache of credentials."""
+  @contextmanager
+  def get_sftp_client(self):
+    """Attempt to connect via SFTP to the remote host."""
+    self.ssh = SSHClient()
+    self.ssh.load_host_keys(join(expanduser('~'), '.ssh', 'known_hosts'))
     try:
-      remove(self.path)
-    except OSError:
-      return 'No credentials to delete.'
-    else:
-      return 'Credentials deleted.'
+      if self.use_password:
+        self.ssh.connect(
+          self.config['host'],
+          username=self.config['user'],
+          password=getpass(),
+        )
+      else:
+        self.ssh.connect(self.config['host'], username=self.config['user'])
+      try:
+        self.sftp = self.ssh.open_sftp()
+      except Exception:
+        raise ClientError('unable to open sftp connection')
+      else:
+        folder = self.config['folder']
+        try:
+          self.sftp.chdir(folder)
+        except IOError:
+          raise ClientError('invalid remote folder %r' % (folder, ))
+        yield self.sftp
+      finally:
+        self.sftp.close()
+    except Exception as err:
+      if isinstance(err, ClientError):
+        raise
+      else:
+        ssh_url = '%s@%s' % (self.config['user'], self.config['host'])
+        raise ClientError('unable to connect to ssh url %r' % (ssh_url, ))
+    finally:
+      self.ssh.close()
+
+  def load_config(self, profile, options):
+    """Attempt to load configuration options.
+
+    :param profile: the profile to load
+    :param options: options specified on the command line, these will
+      override any profile level options.
+    :rtype: dict
+
+    """
+    try:
+      parser = SafeConfigParser()
+      parser.read(self.config_file)
+      return dict(parser.items(profile, vars=options))
+    except (IOError, NoSectionError):
+      if profile == 'default':
+        return options
+      else:
+        raise ClientError('config loading error')
+
+  def get_callback(self):
+    """Callback function for ``sftp.put`` and ``sftp.get``."""
+    def callback(transferred, total):
+      progress = 100 * float(transferred) / total
+      stdout.write('Progress: %.1f%%\r' % (progress, ))
+      stdout.flush()
+    return callback
+
+  def upload(self, filename, track, stream):
+    """Attempt to upload a file the remote host."""
+    with self.get_sftp_client() as sftp:
+      if not stream:
+        try:
+          with open(filename) as handle:
+            pass
+        except IOError:
+          raise ClientError('local file not found %r' % (filename, ))
+        if track:
+          callback = self.get_callback()
+        else:
+          callback = None
+        sftp.put(filename, filename, callback)
+      else:
+        remote_file = sftp.file(filename, 'wb')
+        remote_file.set_pipelined(True)
+        try:
+          while True:
+            data = stdin.read(32768)
+            if not len(data):
+              break
+            remote_file.write(data)
+        finally:
+          remote_file.close()
+
+  def download(self, filename, track, stream):
+    """Attempt to download a file from the remote host."""
+    with self.get_sftp_client() as sftp:
+      try:
+        if not stream:
+          if track:
+            callback = self.get_callback()
+          else:
+            callback = None
+            sftp.get(filename, filename, callback)
+            return filename
+        else:
+          remote_file = sftp.file(filename, 'rb')
+          file_size = sftp.stat(filename).st_size
+          remote_file.prefetch()
+          try:
+            size = 0
+            while True:
+              data = remote_file.read(32768)
+              if not len(data):
+                break
+              stdout.write(data)
+              size += len(data)
+              stdout.flush()
+          finally:
+            remote_file.close()
+      except IOError:
+        raise ClientError('remote file not found %r' % (filename, ))
+
+  def remove(self, filename):
+    """Attempt to remove a file from the remote host."""
+    with self.get_sftp_client() as sftp:
+      try:
+        sftp.unlink(filename)
+      except IOError:
+        raise ClientError('remote file not found %r' % (filename, ))
+
+  def list(self):
+    """Attempt to list available files on the remote host."""
+    with self.get_sftp_client() as sftp:
+      return [
+        filename
+        for filename in sftp.listdir()
+        if not filename.startswith('.')
+      ]
 
 
 def main():
   """Command line parser. Docopt is amazing."""
   arguments = docopt(__doc__, version=__version__)
-  client = Client()
-  if arguments['--reset']:
-    print client.reset_credentials()
-  elif arguments['--list']:
-    print client.get_list_of_pastes()
-  elif arguments['--download']:
-    print client.get_raw_paste(arguments['--download'])
-  else:
-    filepaths = arguments['FILE']
-    if filepaths:
-      contents = []
-      for filepath in filepaths:
-        with open(filepath) as f:
-          contents.append(f.read())
-      content = '\n\n'.join(contents)
-    else:
-      content = stdin.read()
-    url = client.create_paste(
-      content,
-      title=arguments['--title'],
-      syntax=arguments['--syntax'],
-      privacy=arguments['--privacy'],
-      expiration=arguments['--expiration']
+  try:
+    client = Client(
+      profile=arguments['--profile'],
+      use_password=arguments['--use-password'],
+      user=arguments['--user'],
+      host=arguments['--host'],
+      folder=arguments['--folder'],
+      http_url=arguments['--http-url'],
     )
-    if arguments['--open']:
-      open_webbrowser(url)
+    if arguments['--download']:
+      client.download(
+        filename=arguments['FILENAME'],
+        track=arguments['--track'],
+        stream=arguments['--stream'],
+      )
+    elif arguments['--list']:
+      print '\n'.join(client.list())
+    elif arguments['--remove']:
+      client.remove(
+        filename=arguments['FILENAME'],
+      )
     else:
-      print 'Paste successfully created! URL: %s' % (url[7:], )
+      filename = client.upload(
+        filename=arguments['FILENAME'],
+        track=arguments['--track'],
+        stream=arguments['--stream'],
+      )
+  except ClientError as err:
+    if arguments['--debug']:
+      stderr.write(err.traceback)
+    else:
+      stderr.write('%s\n' % (err.message, ))
+    exit(1)
 
 if __name__ == '__main__':
   main()

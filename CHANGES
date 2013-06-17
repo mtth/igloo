@@ -1,7 +1,12 @@
 Igloo
 =====
 
-Version 0.1 (04/19/2013)
-------------------------
+Version 0.0.1 (04/19/2013)
+--------------------------
 
 * Initial release
+
+Version 0.0.19 (06/17/2013)
+---------------------------
+
+* Use SCP instead of HTTP. In particular, no more pastebin.
