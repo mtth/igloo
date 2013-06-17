@@ -33,7 +33,7 @@ Options:
   --password                    Use password identification instead of key
                                 identification. This is only provided as a
                                 convenience and thoroughly untested.
-  -p PROFILE --profile=PROFILE  Profile [default: default].
+  -p PROFILE --profile=PROFILE  Profile.
   -r --recursive                Enable directory transfer. Not yet implemented.
   --remove                      Remove remote file.
   -s --stream                   Streaming mode.
@@ -46,7 +46,7 @@ Options:
 
 """
 
-__version__ = '0.0.21'
+__version__ = '0.0.22'
 
 
 from codecs import getwriter
@@ -54,6 +54,7 @@ from ConfigParser import NoSectionError, SafeConfigParser
 from contextlib import contextmanager
 from getpass import getpass, getuser
 from locale import getpreferredencoding
+from os import environ
 from os.path import expanduser, join
 from sys import stderr, stdin, stdout
 from traceback import format_exc
@@ -63,6 +64,10 @@ try:
   from paramiko import SSHClient
 except ImportError:
   pass # probably in setup.py
+
+
+PROFILES_PATH = environ.get('IGLOO_PROFILES_PATH', '.igloorc')
+DEFAULT_PROFILE = environ.get('IGLOO_DEFAULT_PROFILE', None)
 
 
 class ClientError(Exception):
@@ -82,9 +87,6 @@ class Client(object):
 
   """API client."""
 
-  #: Path to configuration file
-  config_file = join(expanduser('~'), '.config', 'igloo', 'config')
-
   @classmethod
   def from_profile(cls, profile, absolute_folder, **options):
     """Attempt to load configuration options.
@@ -95,15 +97,15 @@ class Client(object):
     :rtype: :class:`Client`
 
     """
-    try:
-      parser = SafeConfigParser()
-      parser.read(cls.config_file)
-      options = dict(parser.items(
-        profile,
-        vars={k: v for k, v in options.items() if isinstance(v, str)}
-      ))
-    except (IOError, NoSectionError):
-      if profile != 'default':
+    if profile:
+      try:
+        parser = SafeConfigParser()
+        parser.read(PROFILES_PATH)
+        options = dict(parser.items(
+          profile,
+          vars={k: v for k, v in options.items() if isinstance(v, str)}
+        ))
+      except (IOError, NoSectionError):
         raise ClientError('config loading error')
     if absolute_folder:
       folder = options.get('folder', None)
@@ -254,7 +256,7 @@ def main():
   arguments = docopt(__doc__, version=__version__)
   try:
     client = Client.from_profile(
-      profile=arguments['--profile'],
+      profile=arguments['--profile'] or DEFAULT_PROFILE,
       absolute_folder=arguments['--absolute-folder'],
       host=arguments['--host'],
       user=arguments['--user'],
