@@ -8,7 +8,7 @@ Usage:
 
 Examples:
   igloo my_file.txt
-  igloo -f private < my_code.py
+  igloo -sf private code.py < my_code.py
   echo 'hello world!' | igloo -s hello
   igloo -ds test.log | grep foo
 
@@ -19,18 +19,25 @@ Arguments:
                                 downloading mode, the remote file to fetch.
 
 Options:
+  -a --absolute-folder          Absolute remote folder path. Only useful
+                                when used with a profile that contains a
+                                `root_folder` option.
+  -b --binary                   Don't encode stdout. This is useful when piping
+                                binary files.
   --debug                       Enable full exception traceback.
   -d --download                 Downloading mode.
   -f FOLDER --folder=FOLDER     Folder to copy the file to/from.
   -h --help                     Show this screen.
   --host=HOST                   Remote hostname.
   --list                        List remote files in folder.
+  --password                    Use password identification instead of key
+                                identification. This is only provided as a
+                                convenience and thoroughly untested.
   -p PROFILE --profile=PROFILE  Profile [default: default].
   -r --recursive                Enable directory transfer. Not yet implemented.
   --remove                      Remove remote file.
   -s --stream                   Streaming mode.
   -t --track                    Track transfer progress.
-  --use-password                Use password identification.
   --user=USER                   Username.
   --version                     Show version.
   -z --zip                      Zip file or folder before transferring. Files
@@ -39,7 +46,7 @@ Options:
 
 """
 
-__version__ = '0.0.20'
+__version__ = '0.0.21'
 
 
 from codecs import getwriter
@@ -57,11 +64,6 @@ try:
   from paramiko import SSHClient
 except ImportError:
   pass # probably in setup.py
-
-# Stdout doesn't do any encoding so we fix this here. Note that using
-# ``stdout.encoding`` instead of ``getpreferredencoding`` will fail when
-# piping.
-stdout = getwriter(getpreferredencoding())(stdout)
 
 
 class ClientError(Exception):
@@ -81,29 +83,55 @@ class Client(object):
 
   """API client."""
 
-  #: Configuration default values
-  config_defaults = {
-    'user': getuser(),
-    'host': '',
-    'root_folder': '.',
-    'default_folder': '.',
-  }
-
   #: Path to configuration file
   config_file = join(expanduser('~'), '.config', 'igloo', 'config')
 
-  def __init__(self, profile, use_password, **kwargs):
-    self.config = self.load_config(
-      profile,
-      {k: v for k, v in kwargs.items() if not v is None}
+  @classmethod
+  def from_profile(cls, profile, absolute_folder, **options):
+    """Attempt to load configuration options.
+
+    :param profile: the profile to load
+    :param options: options specified on the command line, these will
+      override any profile level options.
+    :rtype: :class:`Client`
+
+    """
+    try:
+      parser = SafeConfigParser()
+      parser.read(cls.config_file)
+      options = dict(parser.items(
+        profile,
+        vars={k: v for k, v in options.items() if isinstance(v, str)}
+      ))
+    except (IOError, NoSectionError):
+      if profile != 'default':
+        raise ClientError('config loading error')
+    if absolute_folder:
+      folder = options.get('folder', None)
+    else:
+      folder = join(
+        options.get('root_folder', '.'),
+        options.get('folder', None) or options.get('default_folder', '.')
+      )
+    return cls(
+      host=options.get('host', None),
+      user=options.get('user', None),
+      folder=folder,
+      password=options.get('password', None),
     )
-    for k, v in self.config_defaults.items():
-      self.config.setdefault(k, v)
-    self.config['folder'] = join(
-      self.config['root_folder'],
-      self.config.get('folder', None) or self.config['default_folder'],
-    )
-    self.use_password = use_password
+
+  def __init__(self, host, user=None, folder=None, password=None, writer=None):
+    self.host = host
+    self.user = user or getuser()
+    self.folder = folder
+    self.password = password
+    self.writer = writer or stdout
+
+  def get_writer(self, binary=False):
+    if binary:
+      return self.writer
+    else:
+      return getwriter(getpreferredencoding())(self.writer)
 
   @contextmanager
   def get_sftp_client(self):
@@ -111,24 +139,16 @@ class Client(object):
     self.ssh = SSHClient()
     self.ssh.load_host_keys(join(expanduser('~'), '.ssh', 'known_hosts'))
     try:
-      if self.use_password:
-        self.ssh.connect(
-          self.config['host'],
-          username=self.config['user'],
-          password=getpass(),
-        )
-      else:
-        self.ssh.connect(self.config['host'], username=self.config['user'])
+      self.ssh.connect(self.host, username=self.user, password=self.password)
       try:
         self.sftp = self.ssh.open_sftp()
       except Exception:
         raise ClientError('unable to open sftp connection')
       else:
-        folder = self.config['folder']
         try:
-          self.sftp.chdir(folder)
+          self.sftp.chdir(self.folder)
         except IOError:
-          raise ClientError('invalid remote folder %r' % (folder, ))
+          raise ClientError('invalid remote folder %r' % (self.folder, ))
         yield self.sftp
       finally:
         self.sftp.close()
@@ -136,42 +156,24 @@ class Client(object):
       if isinstance(err, ClientError):
         raise
       else:
-        ssh_url = '%s@%s' % (self.config['user'], self.config['host'])
-        raise ClientError('unable to connect to ssh url %r' % (ssh_url, ))
+        ssh_url = '%s@%s' % (self.user, self.host)
+        raise ClientError('unable to connect to %r' % (ssh_url, ))
     finally:
       self.ssh.close()
 
-  def load_config(self, profile, options):
-    """Attempt to load configuration options.
-
-    :param profile: the profile to load
-    :param options: options specified on the command line, these will
-      override any profile level options.
-    :rtype: dict
-
-    """
-    try:
-      parser = SafeConfigParser()
-      parser.read(self.config_file)
-      return dict(parser.items(profile, vars=options))
-    except (IOError, NoSectionError):
-      if profile == 'default':
-        return options
-      else:
-        raise ClientError('config loading error')
-
   def get_callback(self):
     """Callback function for ``sftp.put`` and ``sftp.get``."""
+    writer = self.get_writer()
     def callback(transferred, total):
       progress = int(100 * float(transferred) / total)
       if progress < 100:
-        stdout.write(' %2i%%\r' % (progress, ))
+        writer.write(' %2i%%\r' % (progress, ))
       else:
-        stdout.write('      \r')
-      stdout.flush()
+        writer.write('      \r')
+      writer.flush()
     return callback
 
-  def upload(self, filename, track, stream):
+  def upload(self, filename, track=False, stream=False):
     """Attempt to upload a file the remote host."""
     with self.get_sftp_client() as sftp:
       if not stream:
@@ -197,7 +199,7 @@ class Client(object):
         finally:
           remote_file.close()
 
-  def download(self, filename, track, stream):
+  def download(self, filename, track=False, stream=False, binary=False):
     """Attempt to download a file from the remote host."""
     with self.get_sftp_client() as sftp:
       try:
@@ -206,9 +208,9 @@ class Client(object):
             callback = self.get_callback()
           else:
             callback = None
-            sftp.get(filename, filename, callback)
-            return filename
+          sftp.get(filename, filename, callback)
         else:
+          writer = self.get_writer(binary)
           remote_file = sftp.file(filename, 'rb')
           file_size = sftp.stat(filename).st_size
           remote_file.prefetch()
@@ -218,13 +220,15 @@ class Client(object):
               data = remote_file.read(32768)
               if not len(data):
                 break
-              stdout.write(data)
+              writer.write(data)
               size += len(data)
-              stdout.flush()
+              writer.flush()
           finally:
             remote_file.close()
       except IOError:
         raise ClientError('remote file not found %r' % (filename, ))
+      except UnicodeDecodeError:
+        raise ClientError('unable to decode file. try with --binary.')
 
   def remove(self, filename):
     """Attempt to remove a file from the remote host."""
@@ -236,34 +240,39 @@ class Client(object):
 
   def list(self):
     """Attempt to list available files on the remote host."""
+    writer = self.get_writer()
     with self.get_sftp_client() as sftp:
-      return [
+      filenames = (
         filename
         for filename in sftp.listdir()
         if not filename.startswith(u'.')
-      ]
+      )
+      writer.write('\n'.join(filenames))
+      writer.write('\n')
+      writer.flush()
 
 
 def main():
   """Command line parser. Docopt is amazing."""
   arguments = docopt(__doc__, version=__version__)
   try:
-    client = Client(
+    client = Client.from_profile(
       profile=arguments['--profile'],
-      use_password=arguments['--use-password'],
-      user=arguments['--user'],
+      absolute_folder=arguments['--absolute-folder'],
       host=arguments['--host'],
+      user=arguments['--user'],
       folder=arguments['--folder'],
+      password=getpass() if arguments['--password'] else None,
     )
     if arguments['--download']:
       client.download(
         filename=arguments['FILENAME'],
         track=arguments['--track'],
         stream=arguments['--stream'],
+        binary=arguments['--binary'],
       )
     elif arguments['--list']:
-      stdout.write(u'\n'.join(client.list()))
-      stdout.write(u'\n')
+      client.list()
     elif arguments['--remove']:
       client.remove(filename=arguments['FILENAME'])
     else:
