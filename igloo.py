@@ -54,8 +54,7 @@ from ConfigParser import NoSectionError, SafeConfigParser
 from contextlib import contextmanager
 from getpass import getpass, getuser
 from locale import getpreferredencoding
-from os import fdopen, makedirs, remove
-from os.path import exists, expanduser, join
+from os.path import expanduser, join
 from sys import stderr, stdin, stdout
 from traceback import format_exc
 
@@ -128,6 +127,7 @@ class Client(object):
     self.writer = writer or stdout
 
   def get_writer(self, binary=False):
+    """Returns the stream writer used by the client."""
     if binary:
       return self.writer
     else:
@@ -136,22 +136,22 @@ class Client(object):
   @contextmanager
   def get_sftp_client(self):
     """Attempt to connect via SFTP to the remote host."""
-    self.ssh = SSHClient()
-    self.ssh.load_host_keys(join(expanduser('~'), '.ssh', 'known_hosts'))
+    ssh = SSHClient()
+    ssh.load_host_keys(join(expanduser('~'), '.ssh', 'known_hosts'))
     try:
-      self.ssh.connect(self.host, username=self.user, password=self.password)
+      ssh.connect(self.host, username=self.user, password=self.password)
       try:
-        self.sftp = self.ssh.open_sftp()
+        sftp = ssh.open_sftp()
       except Exception:
         raise ClientError('unable to open sftp connection')
       else:
         try:
-          self.sftp.chdir(self.folder)
+          sftp.chdir(self.folder)
         except IOError:
           raise ClientError('invalid remote folder %r' % (self.folder, ))
-        yield self.sftp
+        yield sftp
       finally:
-        self.sftp.close()
+        sftp.close()
     except Exception as err:
       if isinstance(err, ClientError):
         raise
@@ -159,7 +159,7 @@ class Client(object):
         ssh_url = '%s@%s' % (self.user, self.host)
         raise ClientError('unable to connect to %r' % (ssh_url, ))
     finally:
-      self.ssh.close()
+      ssh.close()
 
   def get_callback(self):
     """Callback function for ``sftp.put`` and ``sftp.get``."""
@@ -212,16 +212,13 @@ class Client(object):
         else:
           writer = self.get_writer(binary)
           remote_file = sftp.file(filename, 'rb')
-          file_size = sftp.stat(filename).st_size
           remote_file.prefetch()
           try:
-            size = 0
             while True:
               data = remote_file.read(32768)
               if not len(data):
                 break
               writer.write(data)
-              size += len(data)
               writer.flush()
           finally:
             remote_file.close()
@@ -276,7 +273,7 @@ def main():
     elif arguments['--remove']:
       client.remove(filename=arguments['FILENAME'])
     else:
-      filename = client.upload(
+      client.upload(
         filename=arguments['FILENAME'],
         track=arguments['--track'],
         stream=arguments['--stream'],
