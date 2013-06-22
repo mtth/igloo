@@ -31,6 +31,7 @@ setup(
     install_requires=[
       'docopt',
       'paramiko',
+      'pyyaml',
     ],
     entry_points={'console_scripts': ['igloo = igloo:main']},
 )
