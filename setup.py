@@ -15,7 +15,7 @@ def get_version():
 setup(
     name='igloo',
     version=get_version(),
-    description='A command line scp client',
+    description='A command line SCP client',
     long_description=get_description(),
     author='Matthieu Monsch',
     author_email='monsch@mit.edu',

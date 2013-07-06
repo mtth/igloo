@@ -3,7 +3,7 @@
 """Igloo: a command line SCP client.
 
 Usage:
-  igloo [-bdrs] [-p PROFILE | -u URL] FILENAME ...
+  igloo [-bdmrs] [-p PROFILE | -u URL] FILENAME ...
   igloo [-abd] [-p PROFILE | -u URL] --list
   igloo -h | --help | --version
 
@@ -19,11 +19,12 @@ Options:
                                 binary files.
   -d --debug                    Enable full exception traceback.
   -h --help                     Show this screen.
+  -m --move                     Delete origin copy.
   -p PROFILE --profile=PROFILE  Profile [default: default].
   -r --remote                   Remote mode.
   -s --stream                   Streaming mode.
   -t --track                    Track progress.
-  -u URL --url=URL              Url to SCP to.
+  -u URL --url=URL              Url to SCP to (will override any profile).
   --version                     Show version.
 
 Todo:
@@ -34,14 +35,14 @@ Todo:
 
 """
 
-__version__ = '0.0.23'
+__version__ = '0.0.25'
 
 
 from codecs import getwriter
 from contextlib import contextmanager
 from getpass import getuser
 from locale import getpreferredencoding
-from os import environ
+from os import environ, remove
 from os.path import expanduser, join
 from socket import error
 from sys import stderr, stdin, stdout
@@ -92,7 +93,7 @@ class ClientError(Exception):
 
   """
 
-  def __init__(self, number, details):
+  def __init__(self, number, details=()):
     super(ClientError, self).__init__('error: ' + ERRORS[number] % details)
     self.number = number
     self.details = details
@@ -172,7 +173,7 @@ class Client(object):
       writer.flush()
     return callback
 
-  def upload(self, filename, stream=False, track=False):
+  def upload(self, filename, stream=False, track=False, move=False):
     """Attempt to upload a file the remote host."""
     with self.get_sftp_client() as sftp:
       if not stream:
@@ -184,6 +185,9 @@ class Client(object):
           sftp.put(filename, filename, callback)
         except OSError:
           raise ClientError(3, (filename, ))
+        else:
+          if move:
+            remove(filename)
       else:
         remote_file = sftp.file(filename, 'wb')
         remote_file.set_pipelined(True)
@@ -196,7 +200,8 @@ class Client(object):
         finally:
           remote_file.close()
 
-  def download(self, filename, track=False, stream=False, binary=False):
+  def download(self, filename, track=False, stream=False, binary=False,
+    move=False):
     """Attempt to download a file from the remote host."""
     with self.get_sftp_client() as sftp:
       try:
@@ -223,6 +228,9 @@ class Client(object):
         raise ClientError(2, (filename, ))
       except UnicodeDecodeError:
         raise ClientError(7)
+      else:
+        if move:
+          sftp.remove(filename)
 
   def list(self, include_all=False):
     """Attempt to list available files on the remote host."""
@@ -257,12 +265,14 @@ def main():
           filename=filename,
           stream=arguments['--stream'],
           binary=arguments['--binary'],
+          move=arguments['--move'],
         )
     else:
       for filename in arguments['FILENAME']:
         client.upload(
           filename=filename,
           stream=arguments['--stream'],
+          move=arguments['--move'],
         )
   except ClientError as err:
     if arguments['--debug']:
