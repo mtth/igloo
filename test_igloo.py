@@ -7,7 +7,7 @@ from igloo import Client, ClientError
 from nose import run
 from nose.tools import ok_, eq_, raises
 
-HOST = 'orage.in'
+HOST = ''
 
 class TestIgloo(object):
 
@@ -18,7 +18,7 @@ class TestIgloo(object):
 
   @raises(ClientError)
   def test_connection_with_invalid_user(self):
-    client = Client(HOST, user='Foo')
+    client = Client('Foo@orage.in')
     with client.get_sftp_client() as sftp:
       pass
 
@@ -28,10 +28,9 @@ class TestIgloo(object):
     with client.get_sftp_client() as sftp:
       pass
 
-  def test_change_directory(self):
+  def test_list(self):
     client = Client(HOST)
-    with client.get_sftp_client() as sftp:
-      sftp.
+    client.list()
 
 
 if __name__ == '__main__':
