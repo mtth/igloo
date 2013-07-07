@@ -32,8 +32,6 @@ Options:
 Todo:
   -t --track                    Track progress.
   -z --zip                      Zip on the fly.
-  --clean                       Like list but remove.
-  Make binary option automatic (checking if output is piped).
 
 """
 
