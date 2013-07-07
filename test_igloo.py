@@ -32,7 +32,7 @@ def test_client_config():
 
 # Client
 
-URL = 'orage.in:Sites/orage/st/test'
+URL = ''
 
 def test_client():
   client = Client(URL)
@@ -46,7 +46,7 @@ def test_missing_profile_client():
 
 @raises(ClientError)
 def test_connection_with_invalid_url():
-  client = Client('Foo@orage.in')
+  client = Client('Foo@bar')
   with client.get_sftp_client() as sftp:
     pass
 
