@@ -3,39 +3,62 @@
 """Igloo: a command line SCP client.
 
 Usage:
-  igloo [-dflmrqt] [-p PROFILE | -u URL] ([-in] -e EXPR | FILENAME ...)
+  igloo [-dflmrq] [-p PROFILE | -u URL] ([-in] -e EXPR | FILENAME ...)
   igloo (-s | --stream) [-bdr] [-p PROFILE | -u URL] FILENAME
   igloo (-c | --config) [add URL [PROFILE] | delete PROFILE | list]
   igloo -h | --help | -v | --version
 
+  For igloo to work, you must have set up key authentication for each host.
+  You can then either input each url manually (-u user@host:remote/path) or
+  save urls you use often to profiles (-c add user@host:remote/path prof) and
+  then access them directly (-p prof). Profiles are saved in $MYIGLOORC or
+  $HOME/.igloorc if the former isn't set.
+
 Arguments:
-  FILENAME                      The file to transfer.
+  FILENAME                      A file to transfer. With the --stream option,
+                                this is only used as remote filename.
 
 Options:
-  -b --binary                   Don't decode stdout (when piping binary files).
-  -c --config                   Configuration mode.
+  -b --binary                   Don't decode stdout (by default, stdout is
+                                decoded using the preferred encoding).
+  -c --config                   Configuration mode. Use subcommand add to
+                                create a new url/profile entry, subcommand
+                                delete to delete an entry and subcommand list
+                                to display all existing entries. If not
+                                subcommand is specified, returns configuration
+                                filepath.
   -d --debug                    Enable full exception traceback.
   -e EXPR --expr=EXPR           Regular expression to filter filenames.
-  -f --force                    Force overwrite.
+  -f --force                    Overwrite any existing files (by default,
+                                igloo will error out when this happens).
   -h --help                     Show this screen.
-  -i --case-insensitive         Case insensitive matching.
-  -l --list                     Only show matching filenames.
-  -m --move                     Delete origin copy.
+  -i --case-insensitive         Case insensitive regular expression matching.
+  -l --list                     Show matching filenames and exit without
+                                transferring files.
+  -m --move                     Delete origin copy after successful transfer.
   -n --no-match                 Inverse match.
   -p PROFILE --profile=PROFILE  Profile [default: default].
-  -q --quiet                    No output.
-  -r --remote                   Remote mode.
-  -s --stream                   Streaming mode.
+  -q --quiet                    No output (by default, the filename of each
+                                transferred file is printed to stdout).
+  -r --remote                   Remote mode. Filenames will correspond to
+                                files on the remote host and all transfers
+                                become downloads.
+  -s --stream                   Streaming mode. In non-remote mode, the file
+                                uploaded will be read from stdin. In remote
+                                mode, the downloaded file will be written to
+                                stdout.
   -u URL --url=URL              Url to SCP to (will override any profile).
   -v --version                  Show version.
 
-Todo:
-  -t --track                    Track progress.
-  -z --zip                      Zip on the fly.
+Examples:
+  igloo -rle .                  List all files in remote directory.
+  igloo -fmq *                  Move all files to remote directory silently.
+  igloo -sbr a.zip > b.zip      Download and rename binary file.
+  igloo -ine '\.jpe?g$'         Upload all non jpeg files.
 
 """
 
-__version__ = '0.1.2'
+__version__ = '0.1.3'
 
 
 from codecs import getwriter

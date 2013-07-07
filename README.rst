@@ -89,3 +89,10 @@ go over these again, below are a few common usage patterns (note that each
 
     $ echo 'Hello world!' | igloo --stream hello.log
     hello.log
+
+
+Future work
+-----------
+
+* Interactive progress bars
+* Zip folders on the fly
