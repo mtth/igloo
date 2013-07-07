@@ -9,13 +9,13 @@ Usage:
   igloo -h | --help | -v | --version
 
   For igloo to work, you must have set up key authentication for each host.
-  You can then either input each url manually (-u user@host:remote/path) or
-  save urls you use often to profiles (-c add user@host:remote/path prof) and
-  then access them directly (-p prof). Profiles are saved in $MYIGLOORC or
+  You can then either input each url manually (`-u user@host:remote/path`) or
+  save urls you use often to profiles (`-c add user@host:remote/path prof`) and
+  then access them directly (`-p prof`). Profiles are saved in $MYIGLOORC or
   $HOME/.igloorc if the former isn't set.
 
 Arguments:
-  FILENAME                      A file to transfer. With the --stream option,
+  FILENAME                      A file to transfer. With the `--stream` option,
                                 this is only used as remote filename.
 
 Options:
@@ -24,14 +24,17 @@ Options:
   -c --config                   Configuration mode. Use subcommand add to
                                 create a new url/profile entry, subcommand
                                 delete to delete an entry and subcommand list
-                                to display all existing entries. If not
-                                subcommand is specified, returns configuration
+                                to display all existing entries. If no
+                                subcommand is specified, prints configuration
                                 filepath.
   -d --debug                    Enable full exception traceback.
-  -e EXPR --expr=EXPR           Regular expression to filter filenames.
-  -f --force                    Overwrite any existing files (by default,
-                                igloo will error out when this happens).
-  -h --help                     Show this screen.
+  -e EXPR --expr=EXPR           Regular expression to filter filenames with
+                                (e.g. `-e .` will match all files in the
+                                directory).
+  -f --force                    Allow transferred files to overwrite existing
+                                ones (by default, igloo will error out when
+                                this happens).
+  -h --help                     Show this screen and exit.
   -i --case-insensitive         Case insensitive regular expression matching.
   -l --list                     Show matching filenames and exit without
                                 transferring files.
@@ -48,7 +51,7 @@ Options:
                                 mode, the downloaded file will be written to
                                 stdout.
   -u URL --url=URL              Url to SCP to (will override any profile).
-  -v --version                  Show version.
+  -v --version                  Show version and exit.
 
 Examples:
   igloo -rle .                  List all files in remote directory.
@@ -58,7 +61,7 @@ Examples:
 
 """
 
-__version__ = '0.1.3'
+__version__ = '0.1.4'
 
 
 from codecs import getwriter
@@ -348,7 +351,7 @@ def run_client(client, arguments):
     if arguments['--list']:
       write(filenames, writer)
     else:
-      callback = get_callback() if arguments['--track'] else None
+      callback = None
       if arguments['--remote']:
         for filename in filenames:
           client.download(

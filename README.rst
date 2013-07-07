@@ -19,9 +19,10 @@ passphrase).
 Examples
 --------
 
-The exhaustive list of options can be viewed with ``igloo --help``. Rather than
-go over these again, below are a few common usage patterns (note that each
-``--option`` has a shorter version which can found in the help message):
+The exhaustive list of options can be viewed with ``igloo --help``.
+
+Here are a few common usage patterns (note that each ``--option`` has a shorter
+version which can found in the help message):
 
 * Setup the default remote URL:
 
@@ -37,7 +38,7 @@ go over these again, below are a few common usage patterns (note that each
     first.ext
     second.log
 
-* Download back the first file:
+* Download the first file back:
 
   .. code:: bash
 
