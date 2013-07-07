@@ -44,7 +44,7 @@ go over these again, below are a few common usage patterns (note that each
     $ igloo --remote first.ext
     first.ext
 
-* View the list of files in the remote directory that have end in ``.log``:
+* View the list of files in the remote directory that end in ``.log``:
 
   .. code:: bash
 
