@@ -20,7 +20,7 @@ Arguments:
 
 Options:
   -b --binary                   Don't decode stdout (by default, stdout is
-                                decoded using the preferred encoding).
+                                decoded using the local preferred encoding).
   -c --config                   Configuration mode. Use subcommand add to
                                 create a new url/profile entry, subcommand
                                 delete to delete an entry and subcommand list
