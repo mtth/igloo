@@ -25,7 +25,7 @@ Copy from remote host:
 
 .. code:: bash
 
-  $ igloo -d hello.txt
+  $ igloo -r hello.txt
   Hello world!
 
 For the list of all options: ``igloo -h``.
