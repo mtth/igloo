@@ -35,7 +35,7 @@ Todo:
 
 """
 
-__version__ = '0.1.1'
+__version__ = '0.1.2'
 
 
 from codecs import getwriter
@@ -238,7 +238,7 @@ class ClientConfig(object):
       with open(self.path) as handle:
         self.values = load(handle)
     except IOError:
-      pass
+      self.values = {}
     self.values.setdefault(
       'host_keys', join(expanduser('~'), '.ssh', 'known_hosts')
     )
