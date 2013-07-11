@@ -95,5 +95,6 @@ version which can found in the help message):
 Future work
 -----------
 
-* Interactive progress bars
-* Zip folders on the fly
+* Interactive progress bars (--track)
+* Zip files and folders on the fly (--zip)
+* Recursive regexp matches (--walk)
