@@ -61,7 +61,7 @@ Examples:
 
 """
 
-__version__ = '0.1.4'
+__version__ = '0.1.5'
 
 
 from codecs import getwriter
@@ -158,16 +158,16 @@ class ClientError(Exception):
     self.traceback = format_exc()
 
 
-class Client(object):
+class BaseClient(object):
 
   """API client."""
 
   ssh = None
   sftp = None
 
-  def __init__(self, url, host_keys):
+  def __init__(self, url, host_keys=None):
     self.user, self.host, self.path = parse_url(url)
-    self.host_keys = host_keys
+    self.host_keys = host_keys or join(expanduser('~'), '.ssh', 'known_hosts')
 
   def __enter__(self):
     self.ssh = SSHClient()
@@ -253,6 +253,51 @@ class Client(object):
         self.sftp.remove(filename)
 
 
+class Client(BaseClient):
+
+  """Implements additional convenience methods."""
+
+  path = environ.get('MYIGLOORC', expanduser(join('~', '.igloorc')))
+
+  def __init__(self, url=None, profile=None, host_keys=None):
+    # TODO: get url
+    super(BaseClient, self).__init__(url=url, host_keys=host_keys)
+
+  @property
+  def profiles(self):
+    """Dictionary of profiles with custom errors."""
+    pass #TODO
+
+  def save(self):
+    """Save configuration to file."""
+    pass # TODO
+
+  def get_filenames(self, expr, no_match=False, case_insensitive=False,
+    recursive=False, remote=False):
+    """Return filenames that match a regular expression."""
+    regex = re_compile(
+      pattern=expr,
+      flags=IGNORECASE if case_insensitive else 0,
+    )
+    if remote:
+      if not recursive:
+        filenames = sftp.listdir()
+      else:
+        # TODO
+        filenames = []
+    else:
+      if not recursive:
+        filenames = listdir('.')
+      else:
+        # TODO
+        filenames = []
+    return [
+      filename for filename in filenames
+      if (expr.search(filename) and not no_match)
+      or (not expr.search(filename) and no_match)
+    ]
+
+
 class ClientConfig(object):
 
   """Handles loading and saving of options (currently only profiles)."""
@@ -265,9 +310,6 @@ class ClientConfig(object):
         self.values = load(handle)
     except IOError:
       self.values = {}
-    self.values.setdefault(
-      'host_keys', join(expanduser('~'), '.ssh', 'known_hosts')
-    )
     self.values.setdefault('profiles', {})
 
   def _save(self):
@@ -306,7 +348,7 @@ class ClientConfig(object):
   def get_client(self, url, profile):
     """Get client corresponding to current configuration."""
     url = url or self.get_url(profile)
-    return Client(url, self.values['host_keys'])
+    return BaseClient(url, self.values['host_keys'])
 
 
 def config_client(config, arguments):
@@ -332,6 +374,7 @@ def run_client(client, arguments):
   """Main handler."""
   writer = get_stream_writer(binary=arguments['--binary'])
   with client as sftp:
+    # find which files to transfer
     if arguments['--expr']:
       expr = re_compile(
         pattern=arguments['--expr'],
@@ -348,6 +391,7 @@ def run_client(client, arguments):
       ]
     else:
       filenames = arguments['FILENAME']
+    # execute command
     if arguments['--list']:
       write(filenames, writer)
     else:
