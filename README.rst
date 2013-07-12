@@ -97,5 +97,4 @@ Future work
 
 * Interactive progress bars (--track)
 * Zip files and folders on the fly (--zip)
-* Recursive regexp matches (--walk)
 * Multiple transfers at the same time

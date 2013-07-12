@@ -235,81 +235,21 @@ class BaseClient(object):
     self.ssh.close()
     self.ssh = None
 
-  def upload(self, filepath, reader=None, move=False, callback=None,
-    force=False, keep_hierarchy=True):
-    """Attempt to upload a file the remote host."""
+  def transfer(self, remote_filepath, reader=None, writer=None, callback=None):
+    """Transfer file. Doesn't check if overwrites."""
     try:
-      dirname, filename = split(filepath)
-      if keep_hierarchy:
-        safe_makedirs(dirname, self.sftp)
-        remote_filepath = filepath
+      if reader and not writer:
+        # upload
+        self.sftp.putfo(reader, remote_filepath, callback=callback)
+      elif writer and not reader:
+        # download
+        self.sftp.getfo(remote_filepath, writer, callback=callback)
       else:
-        remote_filepath = filename
-      if not force and remote_file_exists(remote_filepath, self.sftp):
-        raise ClientError(12, (remote_filepath, ))
-      if not reader:
-        self.sftp.put(filepath, remote_filepath, callback)
-        if move:
-          remove(filepath)
-      else:
-        remote_file = self.sftp.file(remote_filepath, 'wb')
-        remote_file.set_pipelined(True)
-        try:
-          # TODO: add callback
-          while True:
-            data = reader.read(32768)
-            if not len(data):
-              break
-            remote_file.write(data)
-        finally:
-          remote_file.close()
-    except OSError as err:
-      if err.errno == ENOENT:
-        # local file doesn't exist (strange that this is not IOError)
-        raise ClientError(3, (filepath, ))
-      else: # remote file already exists
-        raise ClientError(14, (err.filename, ))
-    else:
-      return remote_filepath
-
-  def download(self, filepath, writer=None, move=False, callback=None,
-    force=False, keep_hierarchy=True):
-    """Attempt to download a file from the remote host."""
-    try:
-      if not writer:
-        dirname, filename = split(filepath)
-        if keep_hierarchy:
-          safe_makedirs(dirname)
-          local_filepath = filepath
-        else:
-          local_filepath = filename
-        if not force and exists(local_filepath):
-          raise ClientError(11, (local_filepath, ))
-        self.sftp.get(filepath, local_filepath, callback)
-      else:
-        local_filepath = None
-        remote_file = self.sftp.file(filepath, 'rb')
-        remote_file.prefetch()
-        try:
-          # TODO: add callback
-          while True:
-            data = remote_file.read(32768)
-            if not len(data):
-              break
-            writer.write(data)
-            writer.flush()
-        finally:
-          remote_file.close()
+        raise ValueError('Exactly one of reader or writer can be specified.')
     except IOError: # missing remote file
-      raise ClientError(2, (filepath, ))
-    except OSError as err: # in makedirs, file already exists
-      raise ClientError(13, (err.filename, ))
+      raise ClientError(2, (remote_filepath, ))
     except UnicodeDecodeError:
       raise ClientError(7)
-    else:
-      if move:
-        self.sftp.remove(filepath)
-      return local_filepath
 
 
 class Client(BaseClient):
@@ -332,8 +272,11 @@ class Client(BaseClient):
     try:
       with open(self.config_path) as handle:
         self._profile = load(handle)
-    except IOError:
-      self._profile = {}
+    except IOError as err:
+      if err.errno == ENOENT:
+        self._profile = {}
+      else:
+        raise
     return self._profile
 
   def configure(self, profile, url=''):
@@ -381,14 +324,104 @@ class Client(BaseClient):
       ]
     else:
       if remote:
-        filepaths = self.sftp.listdir()
+        filepaths = [
+          filepath for filepath in self.sftp.listdir()
+          if not remote_file_is_directory(filepath, self.sftp)
+        ]
       else:
-        filepaths = listdir('.')
+        filepaths = [
+          filepath for filepath in listdir('.')
+          if not isdir(filepath)
+        ]
     return [
       filepath for filepath in filepaths
       if (regex.search(filepath) and not no_match)
       or (not regex.search(filepath) and no_match)
     ]
+
+  def stream(self, remote_filepath, remote=False, binary=False):
+    """Stream from stdin / to stdout."""
+    if remote:
+      self.transfer(
+        remote_filepath=remote_filepath,
+        writer=get_stream_writer(binary=binary),
+      )
+    else:
+      self.transfer(
+        remote_filepath=remote_filepath,
+        reader=stdin,
+      )
+
+  def download(self, remote_filepath, keep_hierarchy=False, force=False,
+    track=False, move=False):
+    """Attempt to download a file from the remote host."""
+    local_filepath = self._prepare_filepath(
+      remote_filepath,
+      keep_hierarchy=keep_hierarchy,
+      remote=False
+    )
+    if not force and exists(local_filepath):
+      raise ClientError(11, (local_filepath, ))
+    if track:
+      callback = get_callback()
+    else:
+      callback = None
+    with open(local_filepath, 'wb') as writer:
+      self.transfer(
+        remote_filepath=remote_filepath,
+        writer=writer,
+        callback=callback,
+      )
+    if move:
+      self.sftp.remove(remote_filepath)
+    return local_filepath
+
+  def upload(self, local_filepath, keep_hierarchy=False, force=False,
+    track=False, move=False):
+    """Attempt to upload a file the remote host."""
+    remote_filepath = self._prepare_filepath(
+      local_filepath,
+      keep_hierarchy=keep_hierarchy,
+      remote=True
+    )
+    if not force and remote_file_exists(remote_filepath, self.sftp):
+      raise ClientError(12, (remote_filepath, ))
+    if track:
+      callback = get_callback()
+    else:
+      callback = None
+    with open(local_filepath, 'rb') as reader:
+      self.transfer(
+        remote_filepath=remote_filepath,
+        reader=reader,
+        callback=callback,
+      )
+    if move:
+      remove(local_filepath)
+    return remote_filepath
+
+  def _prepare_filepath(self, filepath, keep_hierarchy=False, remote=False):
+    """Returns transferred filepath and creates directories if necessary."""
+    try:
+      if remote:
+        dirname, filename = split(filepath)
+        if keep_hierarchy:
+          safe_makedirs(dirname, self.sftp)
+          new_filepath = filepath
+        else:
+          new_filepath = filename
+      else:
+        dirname, filename = split(filepath)
+        if keep_hierarchy:
+          safe_makedirs(dirname)
+          new_filepath = filepath
+        else:
+          new_filepath = filename
+    except OSError as err:
+      client_errno = 14 if remote else 13
+      raise ClientError(client_errno, (err.filename, ))
+    else:
+      return new_filepath
 
 
 def configure_client(client, arguments):
@@ -425,31 +458,33 @@ def run_client(client, arguments):
     if arguments['--list']:
       write(filepaths, writer)
     else:
-      callback = None
-      if arguments['--remote']:
-        for filepath in filepaths:
-          local_filepath = client.download(
-            filepath=filepath,
-            writer=writer if arguments['--stream'] else None,
-            move=arguments['--move'],
-            force=arguments['--force'],
-            keep_hierarchy=arguments['--keep-hierarchy'],
-            callback=callback,
+      remote = arguments['--remote']
+      for filepath in filepaths:
+        if arguments['--stream']:
+          client.stream(
+            remote_filepath=filepath,
+            remote=remote,
+            binary=arguments['--binary'],
           )
-          if local_filepath and not arguments['--quiet']:
-            write([local_filepath], writer)
-      else:
-        for filepath in filepaths:
-          client.upload(
-            filepath=filepath,
-            reader=stdin if arguments['--stream'] else None,
-            move=arguments['--move'],
-            force=arguments['--force'],
-            keep_hierarchy=arguments['--keep-hierarchy'],
-            callback=callback,
-          )
-          if not arguments['--quiet']:
-            write([filepath], writer)
+        else:
+          if remote:
+            local_filepath = client.download(
+              remote_filepath=filepath,
+              move=arguments['--move'],
+              keep_hierarchy=arguments['--keep-hierarchy'],
+              force=arguments['--force'],
+            )
+            if not arguments['--quiet']:
+              write([local_filepath], writer)
+          else:
+            remote_filepath = client.upload(
+              local_filepath=filepath,
+              move=arguments['--move'],
+              keep_hierarchy=arguments['--keep-hierarchy'],
+              force=arguments['--force'],
+            )
+            if not arguments['--quiet']:
+              write([remote_filepath], writer)
 
 def main():
   """Command line parser. Docopt is amazing."""
