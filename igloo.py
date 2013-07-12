@@ -115,19 +115,6 @@ def write(iterable, writer, lazy_flush=True, format='%s\n'):
   if lazy_flush:
     writer.flush()
 
-def get_callback():
-  """Callback factory function for ``sftp.put`` and ``sftp.get``."""
-  writer = get_stream_writer()
-  def callback(transferred, total):
-    """Actual callback function."""
-    progress = int(100 * float(transferred) / total)
-    if progress < 100:
-      writer.write(' %2i%%\r' % (progress, ))
-    else:
-      writer.write('      \r')
-    writer.flush()
-  return callback
-
 def parse_url(url):
   """Parse URL into user, host and remote directory."""
   if '@' in url:
@@ -143,6 +130,19 @@ def parse_url(url):
     raise ValueError('Empty url')
   else:
     return user, host, path
+
+def get_callback():
+  """Callback factory function for ``sftp.put`` and ``sftp.get``."""
+  writer = get_stream_writer()
+  def callback(transferred, total):
+    """Actual callback function."""
+    progress = int(100 * float(transferred) / total)
+    if progress < 100:
+      writer.write(' %2i%%\r' % (progress, ))
+    else:
+      writer.write('      \r')
+    writer.flush()
+  return callback
 
 
 class ClientError(Exception):
@@ -185,8 +185,6 @@ class BaseClient(object):
         self.sftp.chdir(self.path)
       except IOError:
         raise ClientError(6, (self.path, ))
-      else:
-        return self.sftp
 
   def __exit__(self, type, value, traceback):
     if self.sftp:
@@ -257,20 +255,37 @@ class Client(BaseClient):
 
   """Implements additional convenience methods."""
 
-  path = environ.get('MYIGLOORC', expanduser(join('~', '.igloorc')))
+  config_path = environ.get('MYIGLOORC', expanduser(join('~', '.igloorc')))
 
   def __init__(self, url=None, profile=None, host_keys=None):
-    # TODO: get url
-    super(BaseClient, self).__init__(url=url, host_keys=host_keys)
+    if not url:
+      try:
+        url = self.profile[profile]
+      except KeyError:
+        raise ClientError(10, (profile, ))
+    super(Client, self).__init__(url=url, host_keys=host_keys)
 
   @property
-  def profiles(self):
-    """Dictionary of profiles with custom errors."""
-    pass #TODO
+  def profile(self):
+    """Dictionary of profiles."""
+    try:
+      with open(self.config_path) as handle:
+        self._profile = load(handle)
+    except IOError:
+      self._profile = {}
+    return self._profile
 
-  def save(self):
-    """Save configuration to file."""
-    pass # TODO
+  def configure(self, profile, url=''):
+    """Add and remove profiles."""
+    if url:
+      self.profile[profile] = url
+    else:
+      try:
+        del self.profile[profile]
+      except KeyError:
+        raise ClientError(10, (profile, ))
+    with open(self.config_path, 'w') as handle:
+      dump(self._profile, handle, default_flow_style=False)
 
   def get_filenames(self, expr, no_match=False, case_insensitive=False,
     recursive=False, remote=False):
@@ -298,100 +313,36 @@ class Client(BaseClient):
     ]
 
 
-class ClientConfig(object):
-
-  """Handles loading and saving of options (currently only profiles)."""
-
-  path = environ.get('MYIGLOORC', expanduser(join('~', '.igloorc')))
-
-  def __init__(self):
-    try:
-      with open(self.path) as handle:
-        self.values = load(handle)
-    except IOError:
-      self.values = {}
-    self.values.setdefault('profiles', {})
-
-  def _save(self):
-    """Save options to file."""
-    with open(self.path, 'w') as handle:
-      dump(self.values, handle)
-
-  def _remove(self):
-    """Delete options files."""
-    remove(self.path)
-
-  def get_url(self, profile):
-    """Get URL corresponding to profile."""
-    try:
-      return self.values['profiles'][profile]
-    except KeyError:
-      raise ClientError(10, (profile, ))
-
-  def add_url(self, profile, url):
-    """Create new profile/URL entry."""
-    self.values['profiles'][profile] = url
-    self._save()
-
-  def delete_url(self, profile):
-    """Delete profile entry."""
-    try:
-      self.values['profiles'].pop(profile)
-    except KeyError:
-      raise ClientError(10, (profile, ))
-    self._save()
-
-  def show_urls(self):
-    """Show all profile/URL entries."""
-    return self.values['profiles']
-
-  def get_client(self, url, profile):
-    """Get client corresponding to current configuration."""
-    url = url or self.get_url(profile)
-    return BaseClient(url, self.values['host_keys'])
-
-
-def config_client(config, arguments):
+def configure_client(client, arguments):
   """Configure client according to command line arguments."""
   writer = get_stream_writer()
-  if arguments['add']:
-    config.add_url(
-      url=arguments['URL'],
+  if arguments['add'] or arguments['delete']:
+    client.configure(
       profile=arguments['PROFILE'] or 'default',
+      url=arguments['URL'],
     )
-  elif arguments['delete']:
-    config.delete_url(arguments['PROFILE'])
   elif arguments['list']:
     write(
-      sorted(reversed(config.show_urls().items())),
+      sorted(reversed(client.profile.items())),
       writer,
       format='%s [%s]\n'
     )
   else:
-    writer.write('%s\n' % (config.path, ))
+    write([filename], writer)
 
 def run_client(client, arguments):
   """Main handler."""
   writer = get_stream_writer(binary=arguments['--binary'])
-  with client as sftp:
-    # find which files to transfer
+  with client:
     if arguments['--expr']:
-      expr = re_compile(
-        pattern=arguments['--expr'],
-        flags=IGNORECASE if arguments['--case-insensitive'] else 0,
+      filenames = client.get_filenames(
+        expr=arguments['--expr'],
+        no_match=arguments['--no-match'],
+        case_insensitive=arguments['--case-insensitive'],
+        remote=arguments['--remote'],
       )
-      if arguments['--remote']:
-        filenames = sftp.listdir()
-      else:
-        filenames = listdir('.')
-      filenames = [
-        filename for filename in filenames
-        if (expr.search(filename) and not arguments['--no-match'])
-        or (not expr.search(filename) and arguments['--no-match'])
-      ]
     else:
       filenames = arguments['FILENAME']
-    # execute command
     if arguments['--list']:
       write(filenames, writer)
     else:
@@ -406,7 +357,7 @@ def run_client(client, arguments):
             callback=callback,
           )
           if not arguments['--stream'] and not arguments['--quiet']:
-            writer.write('%s\n' % (filename, ))
+            write([filename], writer)
       else:
         for filename in filenames:
           client.upload(
@@ -417,20 +368,19 @@ def run_client(client, arguments):
             callback=callback,
           )
           if not arguments['--stream'] and not arguments['--quiet']:
-            writer.write('%s\n' % (filename, ))
+            write([filename], writer)
 
 def main():
   """Command line parser. Docopt is amazing."""
   arguments = docopt(__doc__, version=__version__)
   try:
-    config = ClientConfig()
+    client = Client(
+      url=arguments['--url'],
+      profile=arguments['--profile'],
+    )
     if arguments['--config']:
-      config_client(config, arguments)
+      configure_client(client, arguments)
     else:
-      client = config.get_client(
-        url=arguments['--url'],
-        profile=arguments['--profile'],
-      )
       run_client(client, arguments)
   except ClientError as err:
     if arguments['--debug']:
