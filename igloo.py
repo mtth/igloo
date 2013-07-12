@@ -3,7 +3,7 @@
 """Igloo: a command line SCP client.
 
 Usage:
-  igloo [-dfklmrq] [-p PROFILE | -u URL] ([-inw] -e EXPR | FILEPATH ...)
+  igloo [-adfklmrq] [-p PROFILE | -u URL] ([-inw] -e EXPR | FILEPATH ...)
   igloo (-s | --stream) [-bdr] [-p PROFILE | -u URL] FILEPATH
   igloo (-c | --config) [add URL [PROFILE] | delete PROFILE | list]
   igloo -h | --help | -v | --version
@@ -15,10 +15,14 @@ Usage:
   $HOME/.igloorc if the former isn't set.
 
 Arguments:
-  FILEPATH                      A file to transfer. With the `--stream` option,
-                                this is only used as remote filepath.
+  FILEPATH                      Local or remote path of file to transfer. With
+                                the `--stream` option, this is only used as
+                                remote path. Note that any filepaths
+                                corresponding to directories are skipped.
 
 Options:
+  -a --ask                      Interactive mode. Ask before transferring each
+                                file.
   -b --binary                   Don't decode stdout (by default, stdout is
                                 decoded using the local preferred encoding).
   -c --config                   Configuration mode. Use subcommand add to
@@ -62,12 +66,12 @@ Examples:
   igloo -fmq *                  Move all files to remote directory silently.
   igloo -sbr a.zip > b.zip      Download and rename binary file.
   igloo -ine 'jpe?g$'           Upload all non jpeg files.
-  igloo -rwe 'py$'              Download all python files in remote directory
-                                hierarchy.
+  igloo -arwe 'py$'             Download all python files in remote directory
+                                hierarchy, asking for confirmation first.
 
 """
 
-__version__ = '0.1.5'
+__version__ = '0.1.6'
 
 
 from codecs import getwriter
@@ -117,7 +121,7 @@ def get_stream_writer(binary=False, writer=stdout):
     return getwriter(getpreferredencoding())(writer)
 
 def write(iterable, writer, lazy_flush=False, format='%s\n'):
-  """Write to stdout, handles enconding automatically."""
+  """Write to stdout, handles encoding automatically."""
   for elem in iterable:
     writer.write(format % elem)
     if not lazy_flush:
@@ -185,6 +189,15 @@ def get_callback():
       writer.write('      \r')
     writer.flush()
   return callback
+
+def ask(prompt, default='n'):
+  """Simple choice prompter."""
+  if default.lower() == 'y':
+    defaults = 'Yn'
+  else:
+    defaults = 'yN'
+  choice = raw_input('%s [%s] ' % (prompt, defaults)) or default
+  return choice.lower() == 'y'
 
 
 class ClientError(Exception):
@@ -454,11 +467,19 @@ def run_client(client, arguments):
         walk=arguments['--walk'],
       )
     else:
-      filepaths = arguments['FILEPATH']
+      filepaths = [
+        filepath for filepath in arguments['FILEPATH']
+        if arguments['--remote'] or not isdir(filepath)
+      ]
     if arguments['--list']:
       write(filepaths, writer)
     else:
       remote = arguments['--remote']
+      # ask upfront to confirm all filepaths to avoid waiting afterwards
+      filepaths = [
+        filepath for filepath in filepaths
+        if not arguments['--ask'] or ask('Transfer %s?' % (filepath, ))
+      ]
       for filepath in filepaths:
         if arguments['--stream']:
           client.stream(

@@ -4,6 +4,14 @@ Igloo
 A simple command line SCP client.
 
 
+Feature highlights
+------------------
+
+* Store commonly used remote paths for quick access
+* Use regular expressions to filter files
+* Upload from standard input directly
+
+
 Installation
 ------------
 
@@ -95,6 +103,7 @@ version which can found in the help message):
 Future work
 -----------
 
-* Interactive progress bars (--track)
+* Multiple transfers concurrently (--threads=THREADS)
+* Interactive progress bars (change --quiet behavior)
 * Zip files and folders on the fly (--zip)
-* Multiple transfers at the same time
+* Tool to setup authentication
